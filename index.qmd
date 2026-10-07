@@ -1,169 +1,37 @@
----
-title: "Detecting coordinated posting behaviour with coorsim"
-format:
-  html: default
----
+created: 2026-10-07 10:50:00 UTC
+model: llama3.1:8b
+ollama: ollama version is 0.40.0
+md5 of .rds: 3bc45b06aefeb247a6d3fa25753c091e
 
-```{r}
-#| include: false
-set.seed(42)
-```
+R version 4.6.1 (2026-06-24 ucrt)
+Platform: x86_64-w64-mingw32/x64
+Running under: Windows 11 x64 (build 26200)
 
-## Learning Objectives
+Matrix products: default
+  LAPACK version 3.12.1
 
-By the end of this tutorial, you will be able to
+locale:
+[1] LC_COLLATE=English_United States.utf8  LC_CTYPE=English_United States.utf8   
+[3] LC_MONETARY=English_United States.utf8 LC_NUMERIC=C                          
+[5] LC_TIME=English_United States.utf8    
 
-1. find similar posts published within a short time window,
-2. group accounts into communities and plot them,
-3. describe communities with an LLM,
-4. report the share of flagged posts and accounts.
+time zone: Europe/Berlin
+tzcode source: internal
 
-## Target audience
+attached base packages:
+[1] stats     graphics  grDevices utils     datasets  methods   base     
 
-This tutorial is aimed at beginners with some knowledge of R.
+other attached packages:
+[1] data.table_1.18.6.1
 
-## Setting up the computational environment
-
-Install the R packages.
-
-```{r}
-#| label: install-packages
-#| eval: false
-install.packages("remotes")
-remotes::install_github("thieled/coorsim@231617d405890341eed652037088e1136e696f47")
-```
-
-And load the R packages.
-
-```{r}
-#| message: false
-library(coorsim)
-library(data.table)
-```
-
-Embeddings (Python) and LLM labels (Ollama) are precomputed, so only R is needed.
-
-## Duration
-
-Around 10 minutes.
-
-## Social Science Usecase(s)
-
-coorsim detects accounts that post semantically similar content within short
-time frames, which can indicate coordinated social media manipulation
-(Thiele et al., 2025). Unlike CooRTweet, which detects shared objects such as
-URLs or hashtags (Righetti & Balluff, 2025), it compares the meaning of posts.
-
-## Data
-
-Toy data from the coorsim README: 100 posts by 10 accounts, of which
-`coord_1` to `coord_5` post coordinated climate denial messages.
-
-```{r}
-tweets_df <- as.data.table(read.csv("data/toy_posts.csv", colClasses = "character"))
-tweets_df[, created_at := as.POSIXct(created_at, format = "%Y-%m-%d %H:%M:%OS", tz = "UTC")]
-users_df <- as.data.table(read.csv("data/toy_users.csv"))
-head(tweets_df)
-```
-
-## Embeddings
-
-Created with `save_embeddings()` and `Twitter/twhin-bert-base` (`scripts/make_embeddings.R`).
-
-```{r}
-emb_file <- "data/toy_sample_twhin-bert-base.h5"
-```
-
-## Similar posts
-
-Post pairs within 180 seconds with a cosine similarity above 0.925.
-
-```{r}
-sim_dt <- detect_cosimilarity(
-  data = tweets_df,
-  embeddings = emb_file,
-  time_window = 180,
-  min_simil = 0.925,
-  min_participation = 1,
-  post_id = "post_id",
-  account_id = "account_id",
-  time = "created_at",
-  content = "content",
-  verbose = FALSE
-)
-head(sim_dt[, .(account_id, account_id_y, similarity, time_diff)])
-```
-
-## Communities
-
-Accounts are linked by their similar posts and clustered into communities.
-
-```{r}
-coord <- coorsim_detect_groups(
-  simdt = sim_dt,
-  user_data = users_df,
-  account_id = "account_id",
-  verbose = FALSE
-)
-coord$node_list[, .(account_id, account_name, community)]
-```
-
-```{r}
-#| fig-width: 12
-#| fig-height: 10
-#| warning: false
-plot_communities(coord, palette_option = "D", start_color = .2, end_color = .8)
-```
-
-## LLM labels
-
-Created with `scripts/make_labels.R`, which needs a local Ollama server:
-
-```{r}
-#| eval: false
-coord <- sample_user_text(coord, sampling_ratio_posts = .33, sampling_ratio_users = .5)
-coord <- label_users(coord, model = "llama3.1:8b")
-coord <- label_communities(coord, model = "llama3.1:8b")
-```
-
-```{r}
-#| eval: !expr file.exists("data/llm_labels.rds")
-llm <- readRDS("data/llm_labels.rds")
-stopifnot(identical(llm$node_list[order(account_id)]$community,
-                    coord$node_list[order(account_id)]$community))
-coord$user_labels <- llm$user_labels
-coord$community_labels <- llm$community_labels
-coord$community_labels[, .(community, label, description)]
-```
-
-```{r}
-#| eval: !expr file.exists("data/llm_labels.rds")
-#| fig-width: 12
-#| fig-height: 10
-#| warning: false
-plot_communities(coord, palette_option = "D", start_color = .2, end_color = .8)
-```
-
-## Data quality
-
-Share of flagged posts and accounts, to report alongside the dataset.
-
-```{r}
-data.table(
-  level   = c("posts", "accounts"),
-  flagged = c(uniqueN(coord$post_data$post_id), uniqueN(coord$node_list$account_id)),
-  total   = c(nrow(tweets_df), nrow(users_df))
-)[, share := round(flagged / total, 2)][]
-```
-
-## Conclusion
-
-Now you know how to detect, describe and report coordinated posting with coorsim.
-
-## References
-
-- Righetti, N., & Balluff, P. (2025). CooRTweet: A generalized R software for
-  coordinated network detection. *Computational Communication Research, 7*(1),
-  1–23. https://doi.org/10.5117/CCR2025.1.7.RIGH
-- Thiele, D. (2026). *coorsim* (R package version 0.0.8). https://github.com/thieled/coorsim
-<!-- TODO: full reference for Thiele et al. (2025) -->
+loaded via a namespace (and not attached):
+ [1] vctrs_0.7.3        cli_3.6.6          rlang_1.3.0        stringi_1.8.9     
+ [5] otel_0.2.0         purrr_1.2.2        generics_0.1.4     coorsim_0.0.8     
+ [9] assertthat_0.2.1   rollama_0.3.1      jsonlite_2.0.0     RcppParallel_6.2.1
+[13] glue_1.8.1         bit_4.6.0          prettyunits_1.2.0  grid_4.6.1        
+[17] tibble_3.3.1       lifecycle_1.0.5    httr2_1.3.0        stringr_1.6.0     
+[21] compiler_4.6.1     dplyr_1.2.1        igraph_2.3.3       pkgconfig_2.0.3   
+[25] Rcpp_1.1.2         timechange_0.4.0   rstudioapi_0.19.0  lattice_0.22-9    
+[29] R6_2.6.1           tidyselect_1.2.1   pillar_1.11.1      curl_8.0.0        
+[33] magrittr_2.0.5     Matrix_1.7-5       withr_3.0.3        hdf5r_1.3.16      
+[37] tools_4.6.1        bit64_4.8.6        lubridate_1.9.5   
