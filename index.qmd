@@ -1,37 +1,325 @@
-created: 2026-10-07 10:50:00 UTC
-model: llama3.1:8b
-ollama: ollama version is 0.40.0
-md5 of .rds: 3bc45b06aefeb247a6d3fa25753c091e
+---
+title: "coorsim"
+subtitle: "Detecting Coordinated Posting Behavior Based on Co-Similarity"
+author:
+  - name: "Daniel Thiele"
+format:
+  html:
+    toc: true
+    toc-location: left
+    toc-depth: 2
+    embed-resources: true
+biblio-style: apa
+editor:
+  markdown:
+    wrap: 72
+---
 
-R version 4.6.1 (2026-06-24 ucrt)
-Platform: x86_64-w64-mingw32/x64
-Running under: Windows 11 x64 (build 26200)
 
-Matrix products: default
-  LAPACK version 3.12.1
+# At a glance
 
-locale:
-[1] LC_COLLATE=English_United States.utf8  LC_CTYPE=English_United States.utf8   
-[3] LC_MONETARY=English_United States.utf8 LC_NUMERIC=C                          
-[5] LC_TIME=English_United States.utf8    
+Coorsim is an R package for detecting coordinated posting behavior
+based on semantic similarity. It provides functions for generating text
+embeddings, identifying semantically similar posts published within a
+short time window, detecting communities of participating accounts, and
+describing the resulting users and communities with locally hosted
+large language models.
 
-time zone: Europe/Berlin
-tzcode source: internal
+By the end of this tutorial, you will be able to:
 
-attached base packages:
-[1] stats     graphics  grDevices utils     datasets  methods   base     
+-   find semantically similar posts published within a short time window,
+-   group accounts into communities and plot them,
+-   describe communities with an LLM,
+-   report the share of flagged posts and accounts as a data quality indicator,
+-   check how sensitive this indicator is to the detection parameters.
 
-other attached packages:
-[1] data.table_1.18.6.1
 
-loaded via a namespace (and not attached):
- [1] vctrs_0.7.3        cli_3.6.6          rlang_1.3.0        stringi_1.8.9     
- [5] otel_0.2.0         purrr_1.2.2        generics_0.1.4     coorsim_0.0.8     
- [9] assertthat_0.2.1   rollama_0.3.1      jsonlite_2.0.0     RcppParallel_6.2.1
-[13] glue_1.8.1         bit_4.6.0          prettyunits_1.2.0  grid_4.6.1        
-[17] tibble_3.3.1       lifecycle_1.0.5    httr2_1.3.0        stringr_1.6.0     
-[21] compiler_4.6.1     dplyr_1.2.1        igraph_2.3.3       pkgconfig_2.0.3   
-[25] Rcpp_1.1.2         timechange_0.4.0   rstudioapi_0.19.0  lattice_0.22-9    
-[29] R6_2.6.1           tidyselect_1.2.1   pillar_1.11.1      curl_8.0.0        
-[33] magrittr_2.0.5     Matrix_1.7-5       withr_3.0.3        hdf5r_1.3.16      
-[37] tools_4.6.1        bit64_4.8.6        lubridate_1.9.5   
+# 1. Introduction {#introduction}
+
+## Background
+
+Coordinated social media manipulation (CSMM) is the orchestrated activity of multiple accounts to increase content visibility and deceive audiences. The coorsim R package is designed to detect communities of social media users that engage in coordinated posting behavior, which can indicate manipulative efforts such as coordinated social media manipulation (Thiele et al. 2025).
+Social media are key arenas for public opinion formation, but are susceptible to coordinated social media manipulation. Coordinated networks are linked with several problematic activities, including the propagation of disinformation (Giglietto, Righetti, Rossi, & Marino, 2020) and state-backed information operations (Keller et al., 2019; Starbird et al., 2019; Wang et al., 2023).
+By leveraging embeddings, coorsim allows to detect semantically similar coordinated posting, going beyond existing tools such as 'CooRTweet' (Righetti and Balluff 2025) which is tailored to detect coordinated sharing of identical objects. CooRTweet looks for shared uniquely identifiable content such as the same URL or hashtag.
+
+# 2. Setup {#setup}
+
+## Data
+
+First, we create a toy dataset: 100 Tweets by 10 users. 5 out of the 10 users engage in coordinated posting behavior and spread climate denialist content. The others also talk about other climate issues but are non-coordinated.
+
+```{r}
+#| label: load-data
+library(data.table)
+
+tweets_df <- as.data.table(read.csv("data/toy_posts.csv", colClasses = "character"))
+tweets_df[, created_at := as.POSIXct(created_at, format = "%Y-%m-%d %H:%M:%OS", tz = "UTC")]
+users_df <- as.data.table(read.csv("data/toy_users.csv"))
+
+head(tweets_df)
+```
+
+This tutorial uses a toy dataset containing `r nrow(tweets_df)` posts published by `r nrow(users_df)` accounts. Five accounts were constructed to engage in coordinated posting behavior by publishing climate-related content, while the remaining accounts publish other climate-related posts without following the coordination pattern.
+
+
+## Getting started
+
+Install the fixed development version of coorsim used in this tutorial. Pinning the package to a specific commit helps preserve the behavior of the workflow in different environments.
+
+```{r}
+#| label: install-packages
+#| eval: false
+install.packages("remotes")
+remotes::install_github("thieled/coorsim@231617d405890341eed652037088e1136e696f47")
+```
+
+```{r}
+#| label: load-packages
+#| message: false
+library(coorsim)
+```
+
+
+::: callout-note
+## Precomputed results
+
+Generating embeddings requires Python and PyTorch and works best with GPU support for larger datasets. Running the labeling pipeline also requires a local Ollama service.
+To keep this tutorial reproducible in environments without a GPU, the repository includes precomputed embeddings and labels. The scripts in `scripts/` can be used to regenerate these files.
+:::
+
+# 3. Tool application {#tool-application}
+
+## 3.1. Embeddings
+
+Coorsim represents each post as a numerical text embedding. These embeddings allow posts to be compared based on semantic similarity rather than exact wording.
+The embeddings used in this tutorial were generated with the `Twitter/twhin-bert-base` transformer model and stored in an HDF5 file for better retrieval and analysis.
+
+```{r}
+#| label: make-embeddings
+#| eval: false
+# Not run here (needs Python, PyTorch and ideally a GPU).
+# Creates data/toy_sample_twhin-bert-base.h5 and data/embeddings_provenance.txt
+source("scripts/make_embeddings.R")
+```
+
+To make the tutorial reproducible in different environments, the repository includes the precomputed embedding file. Its checksum is compared with the value recorded when the embeddings were created.
+
+```{r}
+#| label: load-embeddings
+emb_file <- "data/toy_sample_twhin-bert-base.h5"
+
+stopifnot(unname(tools::md5sum(emb_file)) == "98b6dcf766638661ae591268136ef4f9")
+```
+
+This helps ensure that the following results are calculated from the same embeddings used in the original workflow.
+
+## 3.2. Detecting similar posts
+
+The next step identifies posts that are similar and were published within a short time period. Posts must occur within 180 seconds and have a cosine similarity of at least 0.925.
+The minimum participation value is set to 1. These settings are kept fixed throughout the analysis.
+
+```{r}
+#| label: cosimilarity
+sim_dt <- detect_cosimilarity(
+  data = tweets_df,
+  embeddings = emb_file,
+  time_window = 180,
+  min_simil = 0.925,
+  min_participation = 1,
+  post_id = "post_id",
+  account_id = "account_id",
+  time = "created_at",
+  content = "content",
+  verbose = FALSE
+)
+head(sim_dt[, .(account_id, account_id_y, similarity, time_diff)])
+```
+
+Each row represents a relationship between posts from two accounts. The displayed columns identify the participating accounts, their similarity, and the time difference between their posts. A qualifying pair is evidence of co-similar posting behavior.
+
+
+## 3.3. Detecting coordinated communities
+
+Accounts become nodes in a network, while edges connect accounts that participated in detected co-similar posting events. The edge weight shows the number of detected events involving the two accounts.
+`coorsim_detect_groups()` then identifies communities in this network using label propagation. Because the clustering procedure uses R's random generator, the seed is set before running the function.
+
+```{r}
+#| label: communities
+# The default clustering (label propagation) uses R's random number generator
+# and ignores the `seed` argument, so set the seed right before the call.
+set.seed(42)
+coord <- coorsim_detect_groups(
+  simdt = sim_dt,
+  user_data = users_df,
+  account_id = "account_id",
+  verbose = FALSE
+)
+coord$node_list[, .(account_id, account_name, community)]
+```
+
+The resulting node list assigns each detected account to a community. The detected account network can be inspected using `plot_communities()`. Accounts assigned to the same community have similar color in the visualization.
+
+```{r}
+#| label: plot-communities
+#| fig-width: 12
+#| fig-height: 10
+#| warning: false
+plot_communities(coord, palette_option = "D", start_color = .2, end_color = .8)
+```
+
+
+## 3.4. Describing communities with an LLM
+
+
+```{r}
+#| label: make-labels
+#| eval: false
+# Not run here (needs a local Ollama server with llama3.1:8b).
+# Creates data/llm_labels.rds
+source("scripts/make_labels.R")
+```
+
+
+
+```{r}
+#| label: load-labels
+llm <- readRDS("data/llm_labels.rds")
+
+
+
+# The labels must belong to the same communities as found above
+stopifnot("Communities differ from data/llm_labels.rds; check the igraph version (2.3.3)" =
+  identical(llm$node_list[order(account_id)]$community,
+            coord$node_list[order(account_id)]$community))
+
+
+
+coord$user_labels <- llm$user_labels
+coord$community_labels <- llm$community_labels
+coord$community_labels[, .(community, label, description)]
+```
+
+
+
+```{r}
+#| label: plot-labelled
+#| fig-width: 12
+#| fig-height: 10
+#| warning: false
+plot_communities(coord, palette_option = "D", start_color = .2, end_color = .8)
+```
+
+
+
+## 3.5. Using coorsim to assess data quality
+
+
+
+### Share of flagged posts and accounts
+
+
+
+```{r}
+#| label: dq-share
+dq_share <- data.table(
+  level   = c("posts", "accounts"),
+  flagged = c(uniqueN(coord$post_data$post_id), uniqueN(coord$node_list$account_id)),
+  total   = c(nrow(tweets_df), nrow(users_df))
+)
+dq_share[, share := round(flagged / total, 2)]
+dq_share
+```
+
+
+
+### Filtering flagged content
+
+
+
+```{r}
+#| label: dq-filter
+tweets_clean <- tweets_df[!post_id %in% coord$post_data$post_id]
+nrow(tweets_clean)
+```
+
+
+
+### Sensitivity to detection parameters
+
+
+
+```{r}
+#| label: dq-sensitivity
+grid <- CJ(time_window = c(60, 180, 300), min_simil = c(0.90, 0.925, 0.95))
+
+
+
+grid[, flagged_accounts := mapply(function(tw, ms) {
+  s <- detect_cosimilarity(tweets_df, emb_file, time_window = tw, min_simil = ms,
+                           min_participation = 1, time = "created_at", verbose = FALSE)
+  uniqueN(c(s$account_id, s$account_id_y))
+}, time_window, min_simil)]
+
+
+
+grid[, share_accounts := round(flagged_accounts / nrow(users_df), 2)]
+grid
+```
+
+
+
+## 3.6. Applying coorsim to your own data
+
+
+
+```{r}
+#| label: own-data
+#| eval: false
+# 1. Prepare two CSV files with these columns:
+#    posts: post_id, account_id, content, created_at (UTC, "%Y-%m-%d %H:%M:%OS")
+#    users: account_id, account_name
+# 2. Edit the paths at the top of the scripts, then run them locally:
+source("scripts/make_embeddings.R")
+source("scripts/make_labels.R")
+# 3. Point this document to your files and render it again.
+```
+
+
+
+# 4. Conclusion and recommendations {#conclusion-and-recommendations}
+
+
+
+### Advantages
+
+
+
+### Limitations
+
+
+
+### Ethical Considerations
+
+
+
+### Future Extensions
+
+
+
+# Reproducibility
+
+
+
+```{r}
+#| label: session-info
+sessionInfo()
+```
+
+
+
+# References
+
+
+
+::: {#refs}
+:::
