@@ -1,0 +1,12 @@
+name: render test
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install jupyter-repo2docker
+      - run: repo2docker --no-run --user-name jovyan --image-name coorsim-test .
+      - run: >
+          docker run --rm --memory=2g coorsim-test
+          bash -c "quarto render index.qmd --execute --to markdown --output check.md --wrap=none"
