@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+title: "coorsim - Detects Coordinated Posting Behavior Based on Co-Similarity"
+message: "If you use this tool, please cite it as below."
+type: software
+authors:
+  - given-names: Daniel
+    family-names: Thiele
+repository-code: "https://github.com/thieled/coorsim"
+version: "1.0.0"

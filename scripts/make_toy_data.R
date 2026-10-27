@@ -1,4 +1,3 @@
-# README step 1 (verbatim)
 
 library(data.table)
 
@@ -122,12 +121,3 @@ rownames(tweets_df) <- NULL
 tweets_df <- as.data.table(tweets_df)
 users_df <- as.data.table(users_df)
 
-
-posts_out <- data.frame(
-  post_id    = tweets_df$post_id,
-  account_id = tweets_df$account_id,
-  content    = tweets_df$content,
-  created_at = format(tweets_df$created_at, "%Y-%m-%d %H:%M:%OS6", tz = "UTC")
-)
-write.csv(posts_out, "data/toy_posts.csv", row.names = FALSE, fileEncoding = "UTF-8")
-write.csv(as.data.frame(users_df), "data/toy_users.csv", row.names = FALSE, fileEncoding = "UTF-8")
