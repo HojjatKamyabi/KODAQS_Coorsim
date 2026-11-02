@@ -37,11 +37,15 @@ large language models.
 
 # 1. Introduction {#introduction}
 
-## Background
+Social media platforms are a major source of digital behavioral data for the social sciences. Researchers usually treat the posts and accounts they collect as traces of genuine individual behavior. However, some of this activity is not what it seems. Coordinated social media manipulation (CSMM) is “the orchestrated activity of multiple accounts to increase content visibility and deceive audiences” [@thiele_attributing_2026, p. 3759]. Such campaigns amplify messages, simulate grassroots support, or try to steer public debate [@giglietto2020takes]. If they go undetected, analyses that count posts, measure the salience of topics, or estimate public opinion from online discourse can be heavily distorted.
 
-Coordinated social media manipulation (CSMM) is "the orchestrated activity of multiple accounts to increase content visibility and deceive audiences" [@thiele_attributing_2025, Abstract]. Such coordinated networks are "linked with several problematic activities, including the propagation of disinformation and state-backed information operations" [@righetti_coortweet_2025, p. 2].
+From a data quality perspective, coordinated behavior affects both sides of the Total Error Framework for digital traces [@sen2021total]. On the representation side, a coordinated network means several accounts do not stand for independent users, so the units being studied are not what they seem. On the measurement side, repeated and amplified content inflates the apparent prevalence of certain messages. Detecting coordination is therefore a matter of data quality and not only a research question in its own right.
 
-The coorsim R package is designed to detect communities of social media users that engage in coordinated posting behavior, which can indicate manipulative efforts such as "coordinated social media manipulation" [@thiele_attributing_2025]. By leveraging embeddings, coorsim allows to detect semantically similar coordinated posting, going beyond existing tools such as 'CooRTweet' [@righetti_coortweet_2025] which is tailored to detect coordinated sharing of identical objects.
+Existing tools such as CooRTweet [@righetti_coortweet_2025] detect coordination by looking for accounts that share identical objects, such as the same URL, hashtag, or retweet, within short time windows. Coordinated campaigns increasingly vary their wording, though, especially when the content is generated or paraphrased with large language models. Such campaigns escape exact-match approaches.
+The R package [coorsim](https://github.com/thieled/coorsim) closes this gap. It embeds posts with transformer language models and flags pairs of posts by different accounts that are semantically highly similar and published within a short time window. From these co-similar posts, it builds a network of accounts and detects communities of likely coordinated users. Local LLMs can then label these communities to support their interpretation.
+
+This tutorial shows the full coorsim workflow on a toy dataset. It covers computing embeddings, detecting co-similar posts, identifying coordinated communities, and labeling them. It also discusses how parameter choices, such as the time window and the similarity threshold, affect the results.
+
 
 # 2. Setup {#setup}
 
