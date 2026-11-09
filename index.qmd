@@ -81,6 +81,7 @@ pak::pak("thieled/coorsim@231617d405890341eed652037088e1136e696f47")
 #| label: load-packages
 #| message: false
 library(coorsim)
+library(ggplot2)
 ```
 
 
@@ -151,8 +152,28 @@ sim_dt <- detect_cosimilarity(
 head(sim_dt[, .(account_id, account_id_y, similarity, time_diff)])
 ```
 
-Each row represents a relationship between posts from two accounts. The displayed columns identify the participating accounts, their similarity, and the time difference between their posts. A qualifying pair is evidence of co-similar posting behavior.
+Each row represents a relationship between posts from two accounts. The displayed columns identify the participating accounts, their similarity, and the time difference between their posts. A qualifying pair is evidence of co-similar posting behavior. The figure shows every pair of posts published within 10 minutes. The shaded area marks the pairs that coorsim detects.
 
+```{r}
+#| label: fig-pairs
+#| fig-width: 8
+#| fig-height: 5
+# All post pairs within 10 minutes with similarity
+all_pairs <- detect_cosimilarity(tweets_df, emb_file, time_window = 600, min_simil = 0,
+                                 min_participation = 1, time = "created_at", verbose = FALSE)
+all_pairs[, pair := fifelse(grepl("coord", account_id) & grepl("coord", account_id_y), "both coordinated",
+                    fifelse(grepl("normal", account_id) & grepl("normal", account_id_y), "both normal", "mixed"))]
+
+ggplot(all_pairs, aes(time_diff, similarity, colour = pair)) +
+  annotate("rect", xmin = 0, xmax = 180, ymin = 0.925, ymax = 1.01, alpha = 0.15) +
+  geom_point(alpha = 0.7) +
+  geom_vline(xintercept = 180, linetype = 2) +
+  geom_hline(yintercept = 0.925, linetype = 2) +
+  scale_colour_viridis_d(option = "D", begin = 0.2, end = 0.8) +
+  labs(x = "Seconds between the two posts", y = "Cosine similarity", colour = "Accounts")
+```
+
+In the toy data, all `r all_pairs[similarity >= 0.925 & time_diff <= 180, .N]` detected pairs are identical copies. Posts that express the same message in different words reach a similarity of at most `r round(max(all_pairs[similarity < 0.925]$similarity), 2)` and are not detected. `r all_pairs[pair == "both coordinated" & similarity > 0.999 & time_diff > 180, .N]` identical pairs of coordinated accounts are missed because they were posted more than 180 seconds apart, while `r all_pairs[pair == "both normal" & similarity >= 0.925 & time_diff <= 180, .N]` pairs of normal accounts are detected.
 
 ## 3.3. Detecting coordinated communities
 
@@ -170,7 +191,7 @@ coord <- coorsim_detect_groups(
 coord$node_list[, .(account_id, account_name, community)]
 ```
 
-The resulting node list assigns each detected account to a community. The detected account network can be inspected using `plot_communities()`. Accounts assigned to the same community have similar color in the visualization.
+The resulting node list assigns each detected account to a community. The detected account network can be inspected using `plot_communities()`. Accounts assigned to the same community have the same color in the visualization.
 
 ```{r}
 #| label: plot-communities
@@ -183,7 +204,7 @@ plot_communities(coord, palette_option = "D", start_color = .2, end_color = .8)
 
 ## 3.4. Describing communities with an LLM
 
-The function `sample_user_text` samples users from communities and posts from users which are passed on to a local LLM labelling function. The labelling functions `label_users` and `label_communities` run local LLMs via `ollama` and ['rollama'](https://github.com/JBGruber/rollama/). This requires that the user has ollama runnign via Docker in the background.
+The function `sample_user_text` samples users from communities and posts from users which are passed on to a local LLM labelling function. The labelling functions `label_users` and `label_communities` run local LLMs via `ollama` and ['rollama'](https://github.com/JBGruber/rollama/). This requires that the user has ollama running via Docker in the background.
 
 ```{r}
 #| label: make-labels
@@ -260,13 +281,31 @@ nrow(tweets_clean)
 
 After filtering, `r nrow(tweets_clean)` posts remain.
 
+```{r}
+#| label: fig-prevalence
+#| fig-width: 7
+#| fig-height: 4
+# Share of climate denial posts before and after removing flagged posts
+prev <- rbind(
+  data.table(data = "All posts", denial = tweets_df$content %in% unlist(denial_templates)),
+  data.table(data = "Flagged posts removed", denial = tweets_clean$content %in% unlist(denial_templates))
+)
+
+ggplot(prev, aes(data, fill = denial)) +
+  geom_bar(position = "fill") +
+  scale_fill_viridis_d(option = "D", begin = 0.8, end = 0.2, labels = c("Other climate topics", "Climate denial")) +
+  labs(x = NULL, y = "Share of posts", fill = NULL)
+```
+
+The share of climate-denial posts drops from `r round(100 * mean(tweets_df$content %in% unlist(denial_templates)))`% to `r round(100 * mean(tweets_clean$content %in% unlist(denial_templates)))`% after filtering. However, `r sum(!tweets_df[post_id %in% coord$post_data$post_id]$content %in% unlist(denial_templates))` of the removed posts are not climate-denial posts, so filtering also removes content from non-coordinated users.
+
 ### Sensitivity to detection parameters
 
 The result depends on the chosen time window and similarity threshold, because "the distinction between coordinated and non-coordinated behavior is not readily definable but rather a matter of degree" [@righetti_coortweet_2025, p. 4]. Running the detection with different settings shows how stable the share of flagged accounts is.
 
 ```{r}
 #| label: dq-sensitivity
-grid <- CJ(time_window = c(60, 180, 300), min_simil = c(0.90, 0.925, 0.95))
+grid <- CJ(time_window = c(10, 30, 60, 120, 180, 300, 600), min_simil = c(0.85, 0.90, 0.925, 0.95))
 
 grid[, flagged_accounts := mapply(function(tw, ms) {
   s <- detect_cosimilarity(tweets_df, emb_file, time_window = tw, min_simil = ms,
@@ -275,10 +314,22 @@ grid[, flagged_accounts := mapply(function(tw, ms) {
 }, time_window, min_simil)]
 
 grid[, share_accounts := round(flagged_accounts / nrow(users_df), 2)]
-grid
 ```
 
-Across these settings, the share of flagged accounts ranges from `r min(grid$share_accounts)` to `r max(grid$share_accounts)`.
+```{r}
+#| label: fig-sensitivity
+#| fig-width: 8
+#| fig-height: 4.5
+ggplot(grid, aes(time_window, flagged_accounts, colour = factor(min_simil))) +
+  geom_line() +
+  geom_point() +
+  geom_vline(xintercept = 180, linetype = 2) +
+  scale_x_log10(breaks = c(10, 30, 60, 120, 180, 300, 600)) +
+  scale_colour_viridis_d(option = "D", begin = 0.2, end = 0.8) +
+  labs(x = "time_window (seconds, log scale)", y = "Accounts flagged", colour = "min_simil")
+```
+
+Across these settings, the share of flagged accounts ranges from `r min(grid$share_accounts)` to `r max(grid$share_accounts)`. The number of flagged accounts depends mainly on the time window. The lines for thresholds 0.925 and 0.95 overlap, because the detected pairs are copies.
 
 ## 3.6. Applying coorsim to your own data
 
@@ -293,11 +344,11 @@ The data must include columns for post IDs, account IDs, timestamps, and content
 
 # 4. Conclusion and recommendations {#conclusion-and-recommendations}
 
-### Advantages
+## Advantages
 
 coorsim detects groups of social media accounts that post semantically similar content within short time frames, based on cosine similarities of post embeddings. It provides functions to generate embeddings, to efficiently compute co-similarities, to detect coordinated communities, to label communities with locally hosted LLMs, and to plot results.
 
-### Limitations
+## Limitations
 
 The threshold-based detection "is necessarily limited to forms of coordination detectable through this methodology and does not cover all forms of coordination" [@righetti_coortweet_2025, p. 18].
 
