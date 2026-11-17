@@ -197,7 +197,13 @@ The resulting node list assigns each detected account to a community. The detect
 #| fig-width: 12
 #| fig-height: 10
 #| warning: false
-plot_communities(coord, palette_option = "D", start_color = .2, end_color = .8)
+#| code-fold: true
+#| code-summary: "Show the code"
+p <- plot_communities(coord, palette_option = "D", start_color = .2, end_color = .8)
+# More space around each network, so the outlines are not cut off (display only)
+for (i in seq_along(p)) p[[i]][[1]] <- p[[i]][[1]] +
+  scale_x_continuous(expand = expansion(mult = 0.2)) + scale_y_continuous(expand = expansion(mult = 0.2))
+p
 ```
 
 
@@ -244,7 +250,13 @@ coord$community_labels[, .(community, label, description)]
 #| fig-width: 12
 #| fig-height: 10
 #| warning: false
-plot_communities(coord, palette_option = "D", start_color = .2, end_color = .8)
+#| code-fold: true
+#| code-summary: "Show the code"
+p <- plot_communities(coord, palette_option = "D", start_color = .2, end_color = .8)
+# More space around each network, so the outlines are not cut off (display only)
+for (i in seq_along(p)) p[[i]][[1]] <- p[[i]][[1]] +
+  scale_x_continuous(expand = expansion(mult = 0.2)) + scale_y_continuous(expand = expansion(mult = 0.2))
+p
 ```
 
 ## 3.5. Using coorsim to assess data quality
@@ -318,10 +330,14 @@ grid[, flagged_accounts := mapply(function(tw, ms) {
 #| label: plot-sensitivity
 #| fig-width: 8
 #| fig-height: 4.5
-ggplot(grid, aes(time_window, flagged_accounts, colour = factor(min_simil), linetype = factor(min_simil))) +
+# Small vertical shift (jitter), so that overlapping lines stay visible
+jit <- position_jitter(width = 0, height = 0.15, seed = 1)
+
+ggplot(grid[order(min_simil, time_window)],
+       aes(time_window, flagged_accounts, colour = factor(min_simil), linetype = factor(min_simil))) +
   geom_vline(xintercept = 180, colour = "grey60") +
-  geom_line(linewidth = 0.8) +
-  geom_point() +
+  geom_line(linewidth = 0.8, position = jit) +
+  geom_point(position = jit) +
   scale_x_continuous(breaks = c(10, 30, 60, 120, 180, 300, 600)) +
   scale_y_continuous(breaks = 0:10) +
   scale_colour_brewer(palette = "Dark2") +
@@ -330,7 +346,7 @@ ggplot(grid, aes(time_window, flagged_accounts, colour = factor(min_simil), line
        colour = "Similarity threshold", linetype = "Similarity threshold")
 ```
 
-The grey vertical line marks the time window of 180 seconds used above. Across these settings, the number of flagged accounts ranges from none to all. The number of flagged accounts depends mainly on the time window. The lines for thresholds 0.925 and 0.95 overlap, because the detected pairs are copies.
+The grey vertical line marks the time window of 180 seconds used above. The lines are shifted slightly, so that overlapping lines stay visible. Across these settings, the number of flagged accounts ranges from none to all. The number of flagged accounts depends mainly on the time window. The lines for thresholds 0.925 and 0.95 overlap, because the detected pairs are copies.
 
 ## 3.6. Applying coorsim to your own data
 
